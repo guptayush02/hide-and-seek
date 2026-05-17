@@ -615,6 +615,7 @@ export default function GameScene({ opts }) {
   const [myHidden, setMyHidden] = useState(false)
   const [reportText, setReportText] = useState('')
   const [showControlsModal, setShowControlsModal] = useState(false)
+  const [showMobileControls, setShowMobileControls] = useState(false)
   const [playAgainAutoCountdown, setPlayAgainAutoCountdown] = useState(0)
   const [playAgainCountdown, setPlayAgainCountdown] = useState(0)
   const [isSearchingRoom, setIsSearchingRoom] = useState(false)
@@ -634,6 +635,29 @@ export default function GameScene({ opts }) {
       cameraModeRef.current = next
       return next
     })
+  }
+
+  useEffect(() => {
+    const updateTouchMode = () => {
+      if (typeof window === 'undefined') return
+      const coarse = window.matchMedia?.('(pointer: coarse)').matches
+      const narrow = window.matchMedia?.('(max-width: 900px)').matches
+      const touch = 'ontouchstart' in window || navigator.maxTouchPoints > 0
+      setShowMobileControls(!!(touch && (coarse || narrow)))
+    }
+    updateTouchMode()
+    window.addEventListener('resize', updateTouchMode)
+    return () => window.removeEventListener('resize', updateTouchMode)
+  }, [])
+
+  const startHoldKey = (key) => (e) => {
+    e.preventDefault?.()
+    keysRef.current[key] = true
+  }
+
+  const stopHoldKey = (key) => (e) => {
+    e.preventDefault?.()
+    keysRef.current[key] = false
   }
 
   useEffect(() => {
@@ -973,64 +997,22 @@ export default function GameScene({ opts }) {
         e.preventDefault()
       }
       if (e.type === 'keydown' && e.key.toLowerCase() === 'h') {
-        if (myHiddenRef.current) {
-          socket.emit('setHidden', { gameId, hidden: false })
-          myHiddenRef.current = false
-          setMyHidden(false)
-          setHiddenRoom('none')
-        } else {
-          const localId = localIdRef.current
-          const me = localId ? playersRef.current[localId] : null
-          if (!me) return
-          let best = null
-          let bd = Infinity
-          roomsRef.current.forEach((r) => {
-            const d = r.pos.distanceTo(me.mesh.position)
-            if (d < bd) {
-              bd = d
-              best = r
-            }
-          })
-          socket.emit('setHidden', { gameId, location: best?.name || 'free_hide', hidden: true })
-          setHiddenRoom(best?.name || 'free_hide')
-        }
+        toggleHideAtSpot()
       }
       if (e.type === 'keydown' && e.key.toLowerCase() === 'c') {
         cycleCameraMode()
       }
       if (e.type === 'keydown' && e.key.toLowerCase() === 'f') {
-        if (roleRef.current !== 'seeker') {
-          setCaughtMsg('Only seeker can use F to catch')
-          setTimeout(() => setCaughtMsg(''), 1200)
-        } else {
-          socket.emit('attemptCatch', { gameId })
-        }
+        catchAndReport()
       }
       if (e.type === 'keydown' && e.code === 'Space') {
-        const ph = physicsRef.current
-        if (ph.y <= 0.001) ph.vy = 0.22
+        jumpAction()
       }
       if (e.type === 'keydown' && e.key.toLowerCase() === 'x') {
-        physicsRef.current.crouch = !physicsRef.current.crouch
+        toggleCrouchAction()
       }
       if (e.type === 'keydown' && e.key.toLowerCase() === 'e') {
-        const localId = localIdRef.current
-        const me = localId ? playersRef.current[localId] : null
-        if (!me) return
-        let best = null
-        let bestDist = Infinity
-        doorsRef.current.forEach((d) => {
-          const dx = me.mesh.position.x - d.mesh.position.x
-          const dz = me.mesh.position.z - d.mesh.position.z
-          const dist = Math.sqrt(dx * dx + dz * dz)
-          if (dist < bestDist) {
-            bestDist = dist
-            best = d
-          }
-        })
-        if (best && bestDist <= 2.4) {
-          socket.emit('toggleDoor', { gameId, doorId: best.id })
-        }
+        toggleNearestDoorAction()
       }
     }
     window.addEventListener('keydown', onKey)
@@ -1446,6 +1428,36 @@ export default function GameScene({ opts }) {
     socketRef.current.emit('attemptCatch', { gameId })
   }
 
+  function jumpAction() {
+    const ph = physicsRef.current
+    if (ph.y <= 0.001) ph.vy = 0.22
+  }
+
+  function toggleCrouchAction() {
+    physicsRef.current.crouch = !physicsRef.current.crouch
+  }
+
+  function toggleNearestDoorAction() {
+    if (!socketRef.current) return
+    const localId = localIdRef.current
+    const me = localId ? playersRef.current[localId] : null
+    if (!me) return
+    let best = null
+    let bestDist = Infinity
+    doorsRef.current.forEach((d) => {
+      const dx = me.mesh.position.x - d.mesh.position.x
+      const dz = me.mesh.position.z - d.mesh.position.z
+      const dist = Math.sqrt(dx * dx + dz * dz)
+      if (dist < bestDist) {
+        bestDist = dist
+        best = d
+      }
+    })
+    if (best && bestDist <= 2.4) {
+      socketRef.current.emit('toggleDoor', { gameId, doorId: best.id })
+    }
+  }
+
   function toggleReady() {
     if (!socketRef.current || phase !== 'waiting') return
     socketRef.current.emit('setReady', { gameId, ready: !myReady })
@@ -1698,8 +1710,63 @@ export default function GameScene({ opts }) {
 
       <div ref={mountRef} className="three-mount" />
 
+      {showMobileControls && phase !== 'ended' ? (
+        <div className="mobile-controls-wrap">
+          <div className="mobile-controls-grid">
+            <div className="mobile-pad">
+              <button
+                className="btn mobile-btn"
+                onTouchStart={startHoldKey('w')}
+                onTouchEnd={stopHoldKey('w')}
+                onTouchCancel={stopHoldKey('w')}
+                onMouseDown={startHoldKey('w')}
+                onMouseUp={stopHoldKey('w')}
+                onMouseLeave={stopHoldKey('w')}
+              >↑ Move</button>
+              <button
+                className="btn mobile-btn"
+                onTouchStart={startHoldKey('arrowleft')}
+                onTouchEnd={stopHoldKey('arrowleft')}
+                onTouchCancel={stopHoldKey('arrowleft')}
+                onMouseDown={startHoldKey('arrowleft')}
+                onMouseUp={stopHoldKey('arrowleft')}
+                onMouseLeave={stopHoldKey('arrowleft')}
+              >↺ Look</button>
+              <button
+                className="btn mobile-btn"
+                onTouchStart={startHoldKey('arrowright')}
+                onTouchEnd={stopHoldKey('arrowright')}
+                onTouchCancel={stopHoldKey('arrowright')}
+                onMouseDown={startHoldKey('arrowright')}
+                onMouseUp={stopHoldKey('arrowright')}
+                onMouseLeave={stopHoldKey('arrowright')}
+              >Look ↻</button>
+              <button
+                className="btn mobile-btn"
+                onTouchStart={startHoldKey('s')}
+                onTouchEnd={stopHoldKey('s')}
+                onTouchCancel={stopHoldKey('s')}
+                onMouseDown={startHoldKey('s')}
+                onMouseUp={stopHoldKey('s')}
+                onMouseLeave={stopHoldKey('s')}
+              >↓ Back</button>
+            </div>
+
+            <div className="mobile-actions">
+              <button className="btn mobile-btn" onClick={jumpAction}>Jump</button>
+              <button className="btn mobile-btn" onClick={toggleCrouchAction}>Crouch</button>
+              <button className="btn mobile-btn" onClick={toggleNearestDoorAction}>Door</button>
+              <button className="btn mobile-btn" onClick={toggleHideAtSpot}>{myHidden ? 'Unhide' : 'Hide'}</button>
+              {myRole === 'seeker' ? <button className="btn mobile-btn" onClick={catchAndReport}>Catch</button> : null}
+              <button className="btn mobile-btn" onClick={cycleCameraMode}>Cam</button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div className="controls">
-        <strong>Controls:</strong> Click map to lock mouse • <strong>W/S</strong> move forward/back • <strong>A/D or Arrow keys</strong> 360° view • <strong>Space</strong> jump • <strong>X</strong> sit/stand • <strong>E</strong> open/close nearest door • <strong>C</strong> camera • <strong>H</strong> hide/unhide (works anywhere, blue spots are suggestions) • <strong>F</strong> seeker catch/report.
+        <strong>Controls:</strong> Click map to lock mouse • <strong>W/S</strong> move forward/back • <strong>A/D or Arrow keys</strong> 360° view • <strong>Space</strong> jump • <strong>X</strong> sit/stand • <strong>E</strong> open/close nearest door • <strong>C</strong> camera • <strong>H</strong> hide/unhide (works anywhere, blue spots are suggestions) • <strong>F</strong> seeker catch/report. <br />
+        <strong>Mobile:</strong> Use on-screen buttons: Move, Look, Back, Jump, Crouch, Door, Hide, Catch, Cam.
       </div>
     </div>
   )
