@@ -622,6 +622,7 @@ export default function GameScene({ opts }) {
   const myHiddenRef = useRef(false)
   const pollingRef = useRef(null)
   const autoPlayTimerRef = useRef(null)
+  const lastMoveTsRef = useRef(0)
 
   const gameId = useMemo(() => opts.gameId || 'room1', [opts.gameId])
   const resolveRole = (player) => {
@@ -650,14 +651,39 @@ export default function GameScene({ opts }) {
     return () => window.removeEventListener('resize', updateTouchMode)
   }, [])
 
-  const startHoldKey = (key) => (e) => {
-    e.preventDefault?.()
-    keysRef.current[key] = true
+  const setVirtualKey = (key, pressed) => {
+    keysRef.current[key] = !!pressed
   }
 
-  const stopHoldKey = (key) => (e) => {
-    e.preventDefault?.()
-    keysRef.current[key] = false
+  const holdHandlers = (key) => ({
+    onPointerDown: (e) => {
+      e.preventDefault?.()
+      setVirtualKey(key, true)
+    },
+    onPointerUp: (e) => {
+      e.preventDefault?.()
+      setVirtualKey(key, false)
+    },
+    onPointerCancel: (e) => {
+      e.preventDefault?.()
+      setVirtualKey(key, false)
+    },
+    onPointerLeave: (e) => {
+      e.preventDefault?.()
+      setVirtualKey(key, false)
+    }
+  })
+
+  function toggleFullscreenAction() {
+    if (!mountRef.current) return
+    const doc = document
+    const isFs = !!(doc.fullscreenElement || doc.webkitFullscreenElement)
+    if (!isFs) {
+      const el = mountRef.current
+      ;(el.requestFullscreen?.() || el.webkitRequestFullscreen?.() || el.webkitEnterFullscreen?.())
+    } else {
+      doc.exitFullscreen?.() || doc.webkitExitFullscreen?.()
+    }
   }
 
   useEffect(() => {
@@ -1227,6 +1253,12 @@ export default function GameScene({ opts }) {
     renderLoop()
 
     const moveLoop = () => {
+      const nowTs = performance.now()
+      if (!lastMoveTsRef.current) lastMoveTsRef.current = nowTs
+      const dtMs = Math.min(33, Math.max(8, nowTs - lastMoveTsRef.current))
+      const dtScale = dtMs / 16.6667
+      lastMoveTsRef.current = nowTs
+
       const localId = localIdRef.current
       const me = localId ? playersRef.current[localId] : null
       if (me && phase !== 'ended') {
@@ -1247,7 +1279,8 @@ export default function GameScene({ opts }) {
         else fpRef.current.pitch = clamp(fpRef.current.pitch, -0.4, 0.4)
 
         const ph = physicsRef.current
-        const speed = ph.crouch ? 0.075 : 0.11
+        const baseSpeed = ph.crouch ? 0.075 : 0.11
+        const speed = baseSpeed * dtScale
         let nx = me.mesh.position.x
         let nz = me.mesh.position.z
 
@@ -1347,7 +1380,7 @@ export default function GameScene({ opts }) {
           me.mesh.position.x = nx
           me.mesh.position.z = nz
           me.mesh.userData.targetPos.set(nx, 0, nz)
-          me.mesh.userData.speed = moved * 8
+          me.mesh.userData.speed = moved * (8 / Math.max(dtScale, 0.001))
           const now = Date.now()
           if (moved > 0.0001 && now - lastEmitRef.current >= 50) {
             lastEmitRef.current = now
@@ -1379,6 +1412,7 @@ export default function GameScene({ opts }) {
       socket.disconnect()
       if (pollingRef.current) { clearInterval(pollingRef.current); pollingRef.current = null }
       if (autoPlayTimerRef.current) { clearTimeout(autoPlayTimerRef.current); autoPlayTimerRef.current = null }
+      lastMoveTsRef.current = 0
       if (rendererRef.current?.domElement && mountRef.current?.contains(rendererRef.current.domElement)) {
         mountRef.current.removeChild(rendererRef.current.domElement)
       }
@@ -1712,53 +1746,36 @@ export default function GameScene({ opts }) {
 
       {showMobileControls && phase !== 'ended' ? (
         <div className="mobile-controls-wrap">
-          <div className="mobile-controls-grid">
+          <div className="mobile-stick-zone">
             <div className="mobile-pad">
               <button
                 className="btn mobile-btn"
-                onTouchStart={startHoldKey('w')}
-                onTouchEnd={stopHoldKey('w')}
-                onTouchCancel={stopHoldKey('w')}
-                onMouseDown={startHoldKey('w')}
-                onMouseUp={stopHoldKey('w')}
-                onMouseLeave={stopHoldKey('w')}
+                {...holdHandlers('w')}
               >↑ Move</button>
               <button
                 className="btn mobile-btn"
-                onTouchStart={startHoldKey('arrowleft')}
-                onTouchEnd={stopHoldKey('arrowleft')}
-                onTouchCancel={stopHoldKey('arrowleft')}
-                onMouseDown={startHoldKey('arrowleft')}
-                onMouseUp={stopHoldKey('arrowleft')}
-                onMouseLeave={stopHoldKey('arrowleft')}
+                {...holdHandlers('arrowleft')}
               >↺ Look</button>
               <button
                 className="btn mobile-btn"
-                onTouchStart={startHoldKey('arrowright')}
-                onTouchEnd={stopHoldKey('arrowright')}
-                onTouchCancel={stopHoldKey('arrowright')}
-                onMouseDown={startHoldKey('arrowright')}
-                onMouseUp={stopHoldKey('arrowright')}
-                onMouseLeave={stopHoldKey('arrowright')}
+                {...holdHandlers('arrowright')}
               >Look ↻</button>
               <button
                 className="btn mobile-btn"
-                onTouchStart={startHoldKey('s')}
-                onTouchEnd={stopHoldKey('s')}
-                onTouchCancel={stopHoldKey('s')}
-                onMouseDown={startHoldKey('s')}
-                onMouseUp={stopHoldKey('s')}
-                onMouseLeave={stopHoldKey('s')}
+                {...holdHandlers('s')}
               >↓ Back</button>
             </div>
+          </div>
 
+          <div className="mobile-action-zone">
             <div className="mobile-actions">
-              <button className="btn mobile-btn" onClick={jumpAction}>Jump</button>
+              <button className="btn mobile-btn mobile-btn-lg" onClick={jumpAction}>Jump</button>
               <button className="btn mobile-btn" onClick={toggleCrouchAction}>Crouch</button>
               <button className="btn mobile-btn" onClick={toggleNearestDoorAction}>Door</button>
               <button className="btn mobile-btn" onClick={toggleHideAtSpot}>{myHidden ? 'Unhide' : 'Hide'}</button>
               {myRole === 'seeker' ? <button className="btn mobile-btn" onClick={catchAndReport}>Catch</button> : null}
               <button className="btn mobile-btn" onClick={cycleCameraMode}>Cam</button>
+              <button className="btn mobile-btn" onClick={toggleFullscreenAction}>Full</button>
             </div>
           </div>
         </div>
