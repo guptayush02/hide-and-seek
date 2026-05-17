@@ -27,7 +27,27 @@ export default function Lobby({ onJoin, savedName = '', savedMap = 'home' }) {
   const urlGameId = searchParams.get('gameId')
   const autoJoin = searchParams.get('autoJoin') === '1'
   const [loading, setLoading] = useState(false)
+  const [inviteRoomId, setInviteRoomId] = useState('')
+  const [copiedInvite, setCopiedInvite] = useState(false)
   const autoStartedRef = useRef(false)
+
+  function makeUniqueRoomId() {
+    return `room-${Math.random().toString(36).slice(2, 8)}`
+  }
+
+  async function handleGenerateInviteRoom() {
+    const rid = makeUniqueRoomId()
+    setInviteRoomId(rid)
+    setCopiedInvite(false)
+    try {
+      const inviteUrl = `${window.location.origin}/?gameId=${encodeURIComponent(rid)}`
+      await navigator.clipboard?.writeText(inviteUrl)
+      setCopiedInvite(true)
+      setTimeout(() => setCopiedInvite(false), 1500)
+    } catch {
+      // clipboard may fail on some browsers; room ID is still shown in UI
+    }
+  }
 
   async function handleStartGame() {
     if (!name.trim()) return
@@ -41,7 +61,14 @@ export default function Lobby({ onJoin, savedName = '', savedMap = 'home' }) {
       const data = await res.json()
 
       let resolvedGameId = ''
-      if (urlGameId) {
+      if (inviteRoomId) {
+        const rr = await fetch(apiUrl('/room/resolve'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ gameId: inviteRoomId, map })
+        }).then((r) => r.json())
+        resolvedGameId = rr.gameId
+      } else if (urlGameId) {
         const rr = await fetch(apiUrl('/room/resolve'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -106,6 +133,20 @@ export default function Lobby({ onJoin, savedName = '', savedMap = 'home' }) {
         <button className="btn btn-primary btn-large" onClick={handleStartGame} disabled={loading || !name.trim()}>
           {loading ? '⏳ Joining...' : '▶ Start Game'}
         </button>
+
+        <div style={{ marginTop: 10, display: 'grid', gap: 8 }}>
+          <button type="button" className="btn" onClick={handleGenerateInviteRoom} disabled={loading}>
+            🔗 Generate Unique Room ID (Invite Friends)
+          </button>
+          {inviteRoomId ? (
+            <div style={{ fontSize: '12px', color: '#344054', background: 'rgba(15,23,42,0.06)', borderRadius: 8, padding: '8px 10px' }}>
+              Room ID: <strong>{inviteRoomId}</strong>
+              <div style={{ marginTop: 4, color: copiedInvite ? '#0f766e' : '#5d6b8a' }}>
+                {copiedInvite ? '✅ Invite link copied' : 'Share this room ID / invite link with friends'}
+              </div>
+            </div>
+          ) : null}
+        </div>
         
         <div style={{ 
           marginTop: 12, 

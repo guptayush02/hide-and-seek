@@ -240,7 +240,7 @@ function startMatch(io, gameId, game) {
     clearReadyKickTimer(game, p.id)
   })
 
-  const hideSeconds = 5
+  const hideSeconds = 60
   game.startedAt = Date.now()
   game.hideSpots = shuffledHideSpots()
   game.doorStates = makeDoorState()

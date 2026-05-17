@@ -5,6 +5,7 @@ import { io } from 'socket.io-client'
 const API_BASE = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '')
 
 const WORLD = { minX: -11.5, maxX: 11.5, minZ: -8.5, maxZ: 8.5 }
+const CHARACTER_FACING_OFFSET = 0
 
 function clamp(v, min, max) {
   return Math.min(max, Math.max(min, v))
@@ -579,7 +580,7 @@ function isBlocked(x, z) {
   return (x <= WORLD.minX || x >= WORLD.maxX || z <= WORLD.minZ || z >= WORLD.maxZ)
 }
 
-export default function GameScene({ opts }) {
+export default function GameScene({ opts, onExit }) {
   const mountRef = useRef(null)
   const socketRef = useRef(null)
   const sceneRef = useRef(null)
@@ -1204,7 +1205,9 @@ export default function GameScene({ opts }) {
         }
 
         const vel = new THREE.Vector3(target.x - mesh.position.x, 0, target.z - mesh.position.z)
-        if (vel.lengthSq() > 0.0005) mesh.rotation.y = Math.atan2(vel.x, vel.z)
+        if (id !== localId && vel.lengthSq() > 0.0005) {
+          mesh.rotation.y = Math.atan2(vel.x, vel.z) + CHARACTER_FACING_OFFSET
+        }
 
         const parts = mesh.userData.parts
         mesh.userData.walkT += dt * (mesh.userData.speed > 0.02 ? 10 : 2)
@@ -1350,7 +1353,7 @@ export default function GameScene({ opts }) {
           }
 
           // move direction from WASD
-          const moveYaw = Math.atan2(moveX, moveZ)
+          const moveYaw = Math.atan2(moveX, moveZ) + CHARACTER_FACING_OFFSET
 
           // character turns toward movement direction
           const faceDiff = normalizeAngle(moveYaw - me.mesh.rotation.y)
@@ -1499,12 +1502,12 @@ export default function GameScene({ opts }) {
 
   function endAndExitRoom() {
     if (!socketRef.current) {
-      window.location.href = '/'
+      onExit?.()
       return
     }
     socketRef.current.emit('leaveGame', { gameId })
     setTimeout(() => {
-      window.location.href = '/'
+      onExit?.()
     }, 150)
   }
 
@@ -1588,6 +1591,7 @@ export default function GameScene({ opts }) {
         <div className="hud-actions">
           {phase === 'waiting' ? <button className="btn btn-primary" onClick={toggleReady}>{myReady ? 'Unready' : 'Ready'}</button> : null}
           {phase === 'waiting' ? <button className="btn" onClick={endAndExitRoom}>End / Exit Room</button> : null}
+          <button className="btn" onClick={endAndExitRoom}>Exit Game</button>
           <button className="btn" onClick={toggleHideAtSpot}>{myHidden ? 'Unhide' : 'Hide (H)'}</button>
           {myRole === 'seeker' ? <button className="btn" onClick={catchAndReport}>Catch / Report (F)</button> : null}
           <button className="btn" onClick={() => setShowControlsModal(true)}>Controls</button>
@@ -1769,13 +1773,14 @@ export default function GameScene({ opts }) {
 
           <div className="mobile-action-zone">
             <div className="mobile-actions">
-              <button className="btn mobile-btn mobile-btn-lg" onClick={jumpAction}>Jump</button>
+              <button className="btn mobile-btn mobile-btn-lg mobile-btn-jump" onClick={jumpAction}>Jump</button>
               <button className="btn mobile-btn" onClick={toggleCrouchAction}>Crouch</button>
               <button className="btn mobile-btn" onClick={toggleNearestDoorAction}>Door</button>
-              <button className="btn mobile-btn" onClick={toggleHideAtSpot}>{myHidden ? 'Unhide' : 'Hide'}</button>
-              {myRole === 'seeker' ? <button className="btn mobile-btn" onClick={catchAndReport}>Catch</button> : null}
+              <button className="btn mobile-btn mobile-btn-hide" onClick={toggleHideAtSpot}>{myHidden ? 'Unhide' : 'Hide'}</button>
+              {myRole === 'seeker' ? <button className="btn mobile-btn mobile-btn-fire" onClick={catchAndReport}>Catch</button> : null}
               <button className="btn mobile-btn" onClick={cycleCameraMode}>Cam</button>
               <button className="btn mobile-btn" onClick={toggleFullscreenAction}>Full</button>
+              <button className="btn mobile-btn" onClick={endAndExitRoom}>Exit</button>
             </div>
           </div>
         </div>
